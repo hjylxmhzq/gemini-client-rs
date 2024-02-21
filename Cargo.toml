@@ -13,3 +13,6 @@ futures-util = "0.3.30"
 json-stream = "0.1.1"
 struson = { version = "0.4.1", features = ["experimental"] }
 tokio-util = "0.7.10"
+teloxide = { version = "0.12.2", features = ["full"] }
+crossbeam = { version = "0.8.4", features = ["crossbeam-channel"] }
+serde = { version = "1.0.197", features = ["derive"] }
