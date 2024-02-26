@@ -217,7 +217,17 @@ impl From<HistoryItemRole> for String {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HistoryItemImage {}
+pub struct HistoryItemImage {
+  buffer: String,
+}
+
+impl HistoryItemImage {
+  pub fn new(buffer: &str) -> Self {
+    Self {
+      buffer: buffer.to_owned(),
+    }
+  }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryItem {
@@ -251,6 +261,10 @@ impl UserMessage {
       text: text.to_owned(),
       image: None,
     }
+  }
+  pub fn with_image(mut self, image: HistoryItemImage) -> Self {
+    self.image = Some(image);
+    self
   }
 }
 
@@ -341,7 +355,11 @@ impl GeminiClient {
       .body(body)
       .send()
       .await?;
-    let r: CountTokensResponse = resp.json().await.unwrap();
+    let r = resp.text().await?;
+    let r: CountTokensResponse = serde_json::from_str(&r).map_err(|_v| {
+      println!("count_tokens error: {:?}", &r);
+      Error::Unknown("Failed to parse count tokens response".to_owned())
+    })?;
     Ok(r.totalTokens)
   }
 

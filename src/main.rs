@@ -1,6 +1,11 @@
-use gemini_client::{Error, GeminiClient, GeminiModel, ModelInfo, StreamItem, UserMessage};
+use std::io::Bytes;
+
+use base64::Engine;
+use futures_util::StreamExt;
+use gemini_client::{Error, GeminiClient, GeminiModel, HistoryItemImage, ModelInfo, StreamItem, UserMessage};
 use teloxide::{
   dispatching::dialogue::{serializer::Json, ErasedStorage, SqliteStorage, Storage},
+  net::Download,
   prelude::*,
   utils::command::BotCommands,
 };
@@ -65,19 +70,56 @@ async fn init(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
 
 async fn chat(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
   let state = dialogue.get().await.unwrap().unwrap();
-  let msg_text = msg.text().unwrap();
+  let msg_text = msg.text().map_or("", |v| v);
+  let photo = msg.photo();
   if msg_text == "/reset" {
     dialogue.update(State::Start).await?;
-    bot.send_message(msg.chat.id, "----- Chat history is reset -----").await?;
+    let result = bot
+      .send_message(msg.chat.id, "----- Chat history is reset -----")
+      .await;
+    if result.is_err() {
+      let err_str = format!("Error: {:?}", result.err().unwrap());
+      bot.send_message(msg.chat.id, err_str).await?;
+    }
     return Ok(());
   }
   if let State::History(history) = state {
     println!("history: {}", history);
     let m = bot.send_message(msg.chat.id, "I'm thinking...").await?;
-    let mut client = GeminiClient::new(API_KEY, GeminiModel::Pro(ModelInfo::default())).with_serialized_history(&history);
-    let rx_raw = client
-      .send_message(UserMessage::new(msg_text))
-      .await;
+    let mut client = GeminiClient::new(API_KEY, GeminiModel::Pro(ModelInfo::default()))
+      .with_serialized_history(&history);
+    let mut user_msg = UserMessage::new(msg_text);
+    if photo.is_some() {
+      let photo = photo.unwrap();
+      if !photo.is_empty() {
+        let photo = photo.get(photo.len() - 1).unwrap();
+        let photo_file_id = photo.file.id.clone();
+        bot.edit_message_text(msg.chat.id, m.id, format!("Start get image path... {}", photo_file_id)).await?;
+        let photo_file_path = bot.get_file(photo_file_id).await?.path;
+        bot.edit_message_text(msg.chat.id, m.id, format!("Downloading image... {}", photo_file_path)).await?;
+        let stream = bot.download_file_stream(&photo_file_path);
+        let s = stream.collect::<Vec<_>>().await;
+        let mut bytes = vec![];
+        for item in s {
+          match item {
+            Ok(b) => {
+              bytes.append(&mut b.to_vec());
+            },
+            Err(e) => {
+              let err_str = format!("Error: {:?}", e);
+              bot.send_message(msg.chat.id, err_str).await?;
+              return Ok(());
+            }
+          }
+        }
+        let img = image::guess_format(&bytes).unwrap();
+        let img_mime_type = img.to_mime_type();
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+        let b64_url = format!("data:{};base64,{}", img_mime_type, b64);
+        user_msg = user_msg.with_image(HistoryItemImage::new(&b64_url));
+      }
+    }
+    let rx_raw = client.send_message(user_msg).await;
 
     if rx_raw.is_err() {
       let err = rx_raw.err().unwrap();
