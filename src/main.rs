@@ -1,8 +1,10 @@
-use std::io::Bytes;
-
 use base64::Engine;
 use futures_util::StreamExt;
-use gemini_client::{Error, GeminiClient, GeminiModel, HistoryItemImage, ModelInfo, StreamItem, UserMessage};
+use gemini_client::{
+  GeminiClient, GeminiModel, HistoryItemImage, ModelInfo, StreamItem, UserMessage,
+};
+use dotenv::dotenv;
+use std::env;
 use teloxide::{
   dispatching::dialogue::{serializer::Json, ErasedStorage, SqliteStorage, Storage},
   net::Download,
@@ -13,8 +15,6 @@ use teloxide::{
 type MyDialogue = Dialogue<State, ErasedStorage<State>>;
 type MyStorage = std::sync::Arc<ErasedStorage<State>>;
 type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
-
-const API_KEY: &str = "AIzaSyA0h7cfIsH8ltSmVR01mUNXgxeTBv2gp9k";
 
 #[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub enum State {
@@ -34,9 +34,22 @@ pub enum Command {
   Reset,
 }
 
+const API_KEY_ENV_NAME: &str = "GEMINI_API_KEY";
+const BOT_TOKEN_ENV_NAME: &str = "TG_BOT_TOKEN";
+
+lazy_static::lazy_static! {
+  static ref API_KEY: String = env::var(API_KEY_ENV_NAME).expect(&format!("{} is not set", API_KEY_ENV_NAME));
+  static ref BOT_TOKEN: String = env::var(BOT_TOKEN_ENV_NAME).expect(&format!("{} is not set", BOT_TOKEN_ENV_NAME));
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-  let bot = Bot::new("6919639454:AAGjVEuGF19C8NBqkLpK9I7WX5puXcsaYEQ");
+  dotenv().ok();
+
+  // let API_KEY = env::var(API_KEY_ENV_NAME).expect(&format!("{} is not set", API_KEY_ENV_NAME));
+  // let BOT_TOKEN = env::var(BOT_TOKEN_ENV_NAME).expect(&format!("{} is not set", BOT_TOKEN_ENV_NAME));
+
+  let bot = Bot::new(BOT_TOKEN.clone());
 
   let storage: MyStorage = SqliteStorage::open("db.sqlite", Json)
     .await
@@ -60,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn init(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
   println!("init");
-  let client = GeminiClient::new(API_KEY, GeminiModel::Pro(ModelInfo::default()));
+  let client = GeminiClient::new(&API_KEY.clone(), GeminiModel::Pro(ModelInfo::default()));
   dialogue
     .update(State::History(client.serialize_history()))
     .await?;
@@ -86,7 +99,7 @@ async fn chat(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
   if let State::History(history) = state {
     println!("history: {}", history);
     let m = bot.send_message(msg.chat.id, "I'm thinking...").await?;
-    let mut client = GeminiClient::new(API_KEY, GeminiModel::Pro(ModelInfo::default()))
+    let mut client = GeminiClient::new(&API_KEY.clone(), GeminiModel::Pro(ModelInfo::default()))
       .with_serialized_history(&history);
     let mut user_msg = UserMessage::new(msg_text);
     if photo.is_some() {
@@ -94,9 +107,21 @@ async fn chat(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
       if !photo.is_empty() {
         let photo = photo.get(photo.len() - 1).unwrap();
         let photo_file_id = photo.file.id.clone();
-        bot.edit_message_text(msg.chat.id, m.id, format!("Start get image path... {}", photo_file_id)).await?;
+        bot
+          .edit_message_text(
+            msg.chat.id,
+            m.id,
+            format!("Start get image path... {}", photo_file_id),
+          )
+          .await?;
         let photo_file_path = bot.get_file(photo_file_id).await?.path;
-        bot.edit_message_text(msg.chat.id, m.id, format!("Downloading image... {}", photo_file_path)).await?;
+        bot
+          .edit_message_text(
+            msg.chat.id,
+            m.id,
+            format!("Downloading image... {}", photo_file_path),
+          )
+          .await?;
         let stream = bot.download_file_stream(&photo_file_path);
         let s = stream.collect::<Vec<_>>().await;
         let mut bytes = vec![];
@@ -104,7 +129,7 @@ async fn chat(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
           match item {
             Ok(b) => {
               bytes.append(&mut b.to_vec());
-            },
+            }
             Err(e) => {
               let err_str = format!("Error: {:?}", e);
               bot.send_message(msg.chat.id, err_str).await?;
