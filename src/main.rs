@@ -1,9 +1,10 @@
 use base64::Engine;
+use dotenv::dotenv;
 use futures_util::StreamExt;
 use gemini_client::{
-  GeminiClient, GeminiModel, HistoryItemImage, ModelInfo, StreamItem, UserMessage,
+  utils::functions::get_weather::get_weather_fn, GeminiClient, GeminiModel, HistoryItemImage,
+  ModelInfo, StreamItem, UserMessage,
 };
-use dotenv::dotenv;
 use std::env;
 use teloxide::{
   dispatching::dialogue::{serializer::Json, ErasedStorage, SqliteStorage, Storage},
@@ -73,7 +74,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn init(bot: Bot, dialogue: MyDialogue, msg: Message) -> HandlerResult {
   println!("init");
-  let client = GeminiClient::new(&API_KEY.clone(), GeminiModel::Pro(ModelInfo::default()));
+  let client = GeminiClient::new(&API_KEY.clone(), GeminiModel::Pro(ModelInfo::default()))
+    .with_functions(&vec![get_weather_fn()]);
   dialogue
     .update(State::History(client.serialize_history()))
     .await?;

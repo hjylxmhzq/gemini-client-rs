@@ -5,6 +5,7 @@ use serde_json::json;
 use std::io::prelude::*;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::io::StreamReader;
+use utils::functions::base::FunctionDeclaration;
 
 use crate::utils::response::read_response;
 pub mod utils;
@@ -157,6 +158,7 @@ impl From<GeminiModel> for String {
 pub struct ChatHistory {
   pub model: GeminiModel,
   items: Vec<HistoryItem>,
+  functions: Vec<FunctionDeclaration>,
 }
 
 impl ChatHistory {
@@ -164,7 +166,12 @@ impl ChatHistory {
     Self {
       model,
       items: vec![],
+      functions: vec![],
     }
+  }
+
+  pub fn set_functions(&mut self, functions: &Vec<FunctionDeclaration>) -> () {
+    self.functions = functions.clone();
   }
 
   pub fn format(&self, max_len: usize) -> String {
@@ -193,9 +200,18 @@ impl ChatHistory {
       })
       .collect();
 
+    let tools = json!([
+      {
+        "functionDeclarations": self.functions
+      }
+    ]);
+
     let body = json!({
       "contents": contents,
+      "tools": tools,
     });
+
+    println!("body: {:#?}", body);
 
     body.to_string()
   }
@@ -283,6 +299,7 @@ impl GeminiClient {
       history: ChatHistory {
         items: vec![],
         model,
+        functions: vec![],
       },
       max_message_length: 200,
     }
@@ -298,6 +315,11 @@ impl GeminiClient {
       |v| v,
     );
     self.history = history;
+    self
+  }
+
+  pub fn with_functions(mut self, functions: &Vec<FunctionDeclaration>) -> Self {
+    self.history.set_functions(functions);
     self
   }
 
