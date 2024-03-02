@@ -206,10 +206,10 @@ impl ChatHistory {
       }
     ]);
 
-    let body = json!({
+    let body = json!([{
       "contents": contents,
       "tools": tools,
-    });
+    }]);
 
     println!("body: {:#?}", body);
 
